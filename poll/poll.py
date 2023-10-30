@@ -586,6 +586,13 @@ class PollBlock(PollBase, CSVExportMixin):
             js="public/js/poll.js",
             js_init="PollBlock"
         )
+    
+    @XBlock.supports("multi_device")  # Mark as mobile-friendly
+    def public_view(self, context=None):
+        """
+        Returns "student_view" content for public view too.
+        """
+        return self.student_view(context)
 
     def student_view_data(self, context=None):
         """
