@@ -40,6 +40,8 @@ from web_fragments.fragment import Fragment
 from xblockutils.publish_event import PublishEventMixin
 from xblockutils.resources import ResourceLoader
 from xblockutils.settings import ThemableXBlockMixin, XBlockWithSettingsMixin
+from lms.djangoapps.courseware.models import XModuleUserStateSummaryField
+
 
 from .utils import DummyTranslationService, _
 
@@ -662,6 +664,12 @@ class PollBlock(PollBase, CSVExportMixin):
         if self.private_results and not self.can_view_private_results():
             detail, total = {}, None
         else:
+        # Get tally from the db directly
+            tally = self.get_tally()
+            if not self.runtime._services['user'].get_current_user().opt_attrs['edx-platform.is_authenticated'] and tally:
+                # Check if user is unauthenticated and tally exists as well
+                self.tally = tally
+                self._clear_dirty_fields()
             self.publish_event_from_dict(self.event_namespace + '.view_results', {})
             detail, total = self.tally_detail()
         return {
@@ -714,6 +722,14 @@ class PollBlock(PollBase, CSVExportMixin):
         if old_choice is not None:
             self.tally[old_choice] -= 1
         self.choice = choice
+        
+        # Get tally from the db directly
+        tally = self.get_tally()
+        if not self.runtime._services['user'].get_current_user().opt_attrs['edx-platform.is_authenticated'] and tally:
+            # Check if user is unauthenticated and
+            # Tally exists, meaning this is not the first vote on the poll
+            return self.handle_anonymous_vote(choice, result, tally)
+        
         self.tally[choice] += 1
         self.submissions_count += 1
 
@@ -721,11 +737,48 @@ class PollBlock(PollBase, CSVExportMixin):
         result['can_vote'] = self.can_vote()
         result['submissions_count'] = self.submissions_count
         result['max_submissions'] = self.max_submissions
-
+        
         self.send_vote_event({'choice': self.choice})
 
         return result
 
+    def get_tally(self):
+        """
+        Get the tally of the poll from the database manually
+        """
+        query_set = XModuleUserStateSummaryField.objects.filter(usage_id=self.scope_ids.usage_id, field_name="tally").first()
+        if not query_set:
+            return None
+        # Tally is a dict stored as string, convert to json
+        return json.loads(query_set.value)
+
+    def handle_anonymous_vote(self, choice, result, tally):
+        """
+        Updates the tally in the database for the anonymous users vote
+        Also, clears the dirty fields so the LMS does not try to update as well
+
+        Args:
+            choice (string): The choice of vote selected by user
+            result (dict): The response dictionary to return to frontend
+            tally (dict): The tally acquired from the database
+
+        Returns:
+            dict: Return the resut to the handler function
+        """
+        tally[choice] += 1
+        self.tally = tally
+        # Update tally in the db
+        XModuleUserStateSummaryField.objects.filter(usage_id=self.scope_ids.usage_id, field_name="tally").update(value=json.dumps(self.tally))
+        # Clear dirty fields (tally, choice) so that the LMS knows not to update too
+        self._clear_dirty_fields()
+        result['success'] = True
+        result['can_vote'] = True
+        result['submissions_count'] = 1
+        result['max_submissions'] = self.max_submissions
+        # Inform the LMS by emitting an event
+        self.send_vote_event({'choice': choice})
+        return result
+        
     @XBlock.json_handler
     def studio_submit(self, data, suffix=''):
         result = {'success': True, 'errors': []}
