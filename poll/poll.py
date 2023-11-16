@@ -666,7 +666,7 @@ class PollBlock(PollBase, CSVExportMixin):
         else:
         # Get tally from the db directly
             tally = self.get_tally()
-            if not self.runtime._services['user'].get_current_user().opt_attrs['edx-platform.is_authenticated'] and tally:
+            if self.is_anonymous_user() and tally:
                 # Check if user is unauthenticated and tally exists as well
                 self.tally = tally
                 self._clear_dirty_fields()
@@ -725,7 +725,7 @@ class PollBlock(PollBase, CSVExportMixin):
         
         # Get tally from the db directly
         tally = self.get_tally()
-        if not self.runtime._services['user'].get_current_user().opt_attrs['edx-platform.is_authenticated'] and tally:
+        if self.is_anonymous_user() and tally:
             # Check if user is unauthenticated and
             # Tally exists, meaning this is not the first vote on the poll
             return self.handle_anonymous_vote(choice, result, tally)
@@ -751,6 +751,12 @@ class PollBlock(PollBase, CSVExportMixin):
             return None
         # Tally is a dict stored as string, convert to json
         return json.loads(query_set.value)
+
+    def is_anonymous_user(self):
+        """
+        Return if the current user is authenticated or not
+        """
+        return not self.runtime._services['user'].get_current_user().opt_attrs['edx-platform.is_authenticated']
 
     def handle_anonymous_vote(self, choice, result, tally):
         """
