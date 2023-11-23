@@ -40,11 +40,13 @@
       <span>{% trans 'Thank you.' %}</span>
     </div>
 
+    {% if not is_anonymous_user %}
     <div class="poll-submissions-count poll-hidden">
       {% blocktrans with submissions_count_s='<span class="poll-current-count">{{ submissions_count }}</span>' max_submissions_s='<span class="poll-max-submissions">{{ max_submissions }}</span>' %}
         You have used {{ submissions_count_s }} out of {{ max_submissions_s }} submissions.
       {% endblocktrans %}
     </div>
+    {% endif %}
 
     {% if feedback %}
       <div class="poll-feedback-container{% if not choice %} poll-hidden{% endif %}">
