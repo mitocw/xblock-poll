@@ -576,6 +576,7 @@ class PollBlock(PollBase, CSVExportMixin):
             'can_view_private_results': self.can_view_private_results(),
             # a11y: Transfer block ID to enable creating unique ids for questions and answers in the template
             'block_id': self._get_block_id(),
+            'is_anonymous_user': self.is_anonymous_user(),
         })
 
         if self.choice:
@@ -762,8 +763,6 @@ class PollBlock(PollBase, CSVExportMixin):
         user_service = self.runtime.service(self, 'user')
         user = user_service.get_current_user()
         return not user.opt_attrs.get('edx-platform.is_authenticated')
-    
-
         
     @XBlock.json_handler
     def studio_submit(self, data, suffix=''):
