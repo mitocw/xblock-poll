@@ -763,7 +763,6 @@ class PollBlock(PollBase, CSVExportMixin):
         user_service = self.runtime.service(self, 'user')
         user = user_service.get_current_user()
         return not user.opt_attrs.get('edx-platform.is_authenticated')
-    
         
     @XBlock.json_handler
     def studio_submit(self, data, suffix=''):
