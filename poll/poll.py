@@ -41,6 +41,7 @@ from xblockutils.publish_event import PublishEventMixin
 from xblockutils.resources import ResourceLoader
 from xblockutils.settings import ThemableXBlockMixin, XBlockWithSettingsMixin
 
+
 from .utils import DummyTranslationService, _
 
 try:
@@ -439,6 +440,8 @@ class PollBase(XBlock, ResourceMixin, PublishEventMixin):
 
 @XBlock.wants('settings')
 @XBlock.needs('i18n')
+@XBlock.needs('user')
+@XBlock.needs('anonymous_user_poll')
 class PollBlock(PollBase, CSVExportMixin):
     """
     Poll XBlock. Allows a teacher to poll users, and presents the results so
@@ -662,6 +665,14 @@ class PollBlock(PollBase, CSVExportMixin):
         if self.private_results and not self.can_view_private_results():
             detail, total = {}, None
         else:
+            if self.is_anonymous_user():
+                anonymous_user_poll_service = self.get_anonymous_user_poll_service()
+                usage_id = self.scope_ids.usage_id
+                # Get tally from the db directly
+                tally = anonymous_user_poll_service.get_tally(usage_id)
+                self.tally = tally
+                # Clear dirty fields so that the LMS does not try to update tally
+                self._clear_dirty_fields()
             self.publish_event_from_dict(self.event_namespace + '.view_results', {})
             detail, total = self.tally_detail()
         return {
@@ -675,6 +686,8 @@ class PollBlock(PollBase, CSVExportMixin):
             # a11y: Transfer block ID to enable creating unique ids for questions and answers in the template
             'block_id': self._get_block_id(),
         }
+        
+        
 
     @XBlock.json_handler
     def vote(self, data, suffix=''):
@@ -714,18 +727,44 @@ class PollBlock(PollBase, CSVExportMixin):
         if old_choice is not None:
             self.tally[old_choice] -= 1
         self.choice = choice
+        result['max_submissions'] = self.max_submissions
+        
+        # Check if user is unauthenticated
+        if self.is_anonymous_user():
+            anonymous_user_poll_service = self.get_anonymous_user_poll_service()
+            usage_id = self.scope_ids.usage_id
+            result, tally_updated = anonymous_user_poll_service.vote(choice, result, usage_id)
+            if tally_updated:
+                # Clear the dirty fields so that the LMS knows not to update tally
+                self._clear_dirty_fields()
+                # Let the LMS know that the user has voted
+                self.send_vote_event({'choice': self.choice})
+                return result
+        
         self.tally[choice] += 1
         self.submissions_count += 1
 
         result['success'] = True
         result['can_vote'] = self.can_vote()
         result['submissions_count'] = self.submissions_count
-        result['max_submissions'] = self.max_submissions
-
+        
         self.send_vote_event({'choice': self.choice})
 
         return result
 
+    def get_anonymous_user_poll_service(self):
+        return self.runtime.service(self, "anonymous_user_poll")
+
+    def is_anonymous_user(self):
+        """
+        Return if the current user is authenticated or not
+        """
+        user_service = self.runtime.service(self, 'user')
+        user = user_service.get_current_user()
+        return not user.opt_attrs.get('edx-platform.is_authenticated')
+    
+
+        
     @XBlock.json_handler
     def studio_submit(self, data, suffix=''):
         result = {'success': True, 'errors': []}
