@@ -666,12 +666,12 @@ class PollBlock(PollBase, CSVExportMixin):
             detail, total = {}, None
         else:
             if self.is_anonymous_user():
-                anonymous_user_poll_service = self.runtime.service(self, "anonymous_user_poll")
+                anonymous_user_poll_service = self.get_anonymous_user_poll_service()
                 usage_id = self.scope_ids.usage_id
                 # Get tally from the db directly
-                
                 tally = anonymous_user_poll_service.get_tally(usage_id)
                 self.tally = tally
+                # Clear dirty fields so that the LMS does not try to update tally
                 self._clear_dirty_fields()
             self.publish_event_from_dict(self.event_namespace + '.view_results', {})
             detail, total = self.tally_detail()
@@ -729,19 +729,17 @@ class PollBlock(PollBase, CSVExportMixin):
         self.choice = choice
         result['max_submissions'] = self.max_submissions
         
-        # Check if user is unauthenticated and
+        # Check if user is unauthenticated
         if self.is_anonymous_user():
-            anonymous_user_poll_service = self.runtime.service(self, "anonymous_user_poll")
+            anonymous_user_poll_service = self.get_anonymous_user_poll_service()
             usage_id = self.scope_ids.usage_id
-            # Get tally from the db directly
-            tally = anonymous_user_poll_service.get_tally(usage_id)
-            # Check if tally exists, meaning this is not the first vote on the poll
-            if tally:
+            result, tally_updated = anonymous_user_poll_service.vote(choice, result, usage_id)
+            if tally_updated:
                 # Clear the dirty fields so that the LMS knows not to update tally
                 self._clear_dirty_fields()
-                # Let the LMS know the user has voted
+                # Let the LMS know that the user has voted
                 self.send_vote_event({'choice': self.choice})
-                return anonymous_user_poll_service.vote(choice, tally, result, usage_id)
+                return result
         
         self.tally[choice] += 1
         self.submissions_count += 1
@@ -754,6 +752,8 @@ class PollBlock(PollBase, CSVExportMixin):
 
         return result
 
+    def get_anonymous_user_poll_service(self):
+        return self.runtime.service(self, "anonymous_user_poll")
 
     def is_anonymous_user(self):
         """
